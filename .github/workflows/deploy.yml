@@ -4,7 +4,7 @@ name: Deploy static content to Pages
 on:
   # Runs on pushes targeting the default branch
   push:
-    branches: ["main"] # Or 'master' if that's your default branch
+    branches: ["main"] # Change to 'master' if that's your default branch
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -25,27 +25,24 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "18" # Or your preferred Node.js version
+          node-version: "18"
           cache: "npm"
-          
+
       - name: Install dependencies
-        run: npm install
-        
+        run: npm ci # Use 'ci' for faster, more reliable installs
+
       - name: Build
-        run: npm run build
-        # IMPORTANT: If you use Vite, your build folder is 'dist', not 'build'.
-        # Change the 'run' command above to 'npm run build'
-        # And change the 'path' in the 'Upload artifact' step below to './dist'
+        run: npm run build # This creates the 'dist' folder
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
-        
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload the 'build' directory
-          path: "./build" 
-          
+          # Upload the 'dist' directory
+          path: "./dist" 
+
   # Deployment job
   deploy:
     environment:
