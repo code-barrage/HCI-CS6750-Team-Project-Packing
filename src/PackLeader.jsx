@@ -1,5 +1,5 @@
-import React, { useState, useMemo, createContext, useContext } from 'react';
-import { Check, CheckCircle, Circle, Plus, Users, ClipboardList, Package, ChevronRight, X, User, Zap, Sun, CloudRain, ShoppingCart, Info, DollarSign, Image, MapPin, Map } from 'lucide-react';
+import React, { useState, useMemo, createContext, useContext, useEffect } from 'react';
+import { Check, CheckCircle, Circle, Plus, Users, ClipboardList, Package, ChevronRight, X, User, Zap, Sun, CloudRain, ShoppingCart, Info, DollarSign, Image, MapPin, Map, PartyPopper } from 'lucide-react';
 
 // --- Mock Data ---
 const USERS = {
@@ -28,6 +28,8 @@ const TEMPLATES = [
       { id: 'g9', name: 'Sleeping Pad', category: 'Personal', shared: false, quantity: 1 },
       { id: 'g10', name: 'Rain Gear', category: 'Personal', shared: false, quantity: 1 },
       { id: 'g11', name: 'Pocket Knife', category: 'Personal', shared: false, quantity: 1 },
+      // Added a cooler to better match the user story
+      { id: 'g11a', name: 'Cooler', category: 'Food', shared: true, quantity: 1 },
     ],
     tasks: [
       { id: 'tk1', name: 'Submit Health Forms A & B', assignedTo: null, status: 'incomplete' },
@@ -107,6 +109,10 @@ export default function App() {
   const [currentTrip, setCurrentTrip] = useState(null);
   const [showCreateModal, setShowCreateModal] = useState(true);
   const [currentPage, setCurrentPage] = useState('Dashboard');
+  
+  // --- NEW: State for completion modal ---
+  const [showMyTasksCompleteModal, setShowMyTasksCompleteModal] = useState(false);
+  const [myTasksAreDone, setMyTasksAreDone] = useState(false);
 
   const createTrip = (templateId) => {
     const template = TEMPLATES.find(t => t.id === templateId);
@@ -119,7 +125,7 @@ export default function App() {
       gear: template.gear.map(g => ({
         ...g,
         claims: g.shared ? Array(g.quantity).fill(null) : [],
-        personalStatus: g.shared ? {} : Object.fromEntries(Object.keys(USERS).map(uid => [uid, 'unpacked'])),
+        personalStatus: Object.fromEntries(Object.keys(USERS).map(uid => [uid, 'unpacked'])),
       })),
       tasks: template.tasks.map(t => ({ ...t })),
     };
@@ -134,6 +140,39 @@ export default function App() {
       ...updatedData,
     }));
   };
+
+  // --- NEW: Effect to check for user's task completion ---
+  useEffect(() => {
+    if (!currentTrip) return;
+
+    // 1. Get all my gear (personal + claimed shared)
+    const myGearList = currentTrip.gear.filter(g => {
+      const isPersonal = !g.shared;
+      const isSharedButClaimedByMe = g.shared && g.claims.includes(CURRENT_USER_ID);
+      return isPersonal || isSharedButClaimedByMe;
+    });
+    
+    // 2. Get all my assigned tasks
+    const myTasksList = currentTrip.tasks.filter(t => t.assignedTo === CURRENT_USER_ID);
+
+    // 3. Check if all gear is packed
+    const allGearPacked = myGearList.every(g => g.personalStatus[CURRENT_USER_ID] === 'packed');
+    
+    // 4. Check if all tasks are complete
+    const allTasksDone = myTasksList.every(t => t.status === 'complete');
+
+    // Must have at least one task/item to be considered "done"
+    const hasResponsibilities = (myGearList.length + myTasksList.length) > 0;
+    const allDone = allGearPacked && allTasksDone && hasResponsibilities;
+
+    // If I am now done, but wasn't before
+    if (allDone && !myTasksAreDone) {
+      setShowMyTasksCompleteModal(true); // Show the modal
+    }
+    
+    setMyTasksAreDone(allDone); // Update the state for next check
+
+  }, [currentTrip, myTasksAreDone]); // Watch currentTrip and the state itself
 
   if (!currentTrip || showCreateModal) {
     return <CreateTripModal onCreateTrip={createTrip} />;
@@ -154,6 +193,11 @@ export default function App() {
           <Header onNewTrip={() => setShowCreateModal(true)} />
           <MainContent />
         </div>
+        
+        {/* --- NEW: Render completion modal --- */}
+        {showMyTasksCompleteModal && (
+          <MyTasksCompleteModal onClose={() => setShowMyTasksCompleteModal(false)} />
+        )}
       </div>
     </AppContext.Provider>
   );
@@ -189,6 +233,28 @@ function CreateTripModal({ onCreateTrip }) {
   );
 }
 
+// --- NEW: Completion Modal ---
+function MyTasksCompleteModal({ onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-lg bg-white p-8 text-center shadow-2xl">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-green-600">
+          <PartyPopper size={40} />
+        </div>
+        <h2 className="mt-6 mb-4 text-2xl font-bold text-gray-800">You're All Set!</h2>
+        <p className="mb-8 text-gray-600">All your assigned tasks are complete and your bags are packed. You're officially ready for the trip!</p>
+        <button
+          onClick={onClose}
+          className="w-full rounded-md bg-blue-600 px-4 py-2 font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
+        >
+          Awesome!
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
 // --- Main Layout Components ---
 
 function Sidebar() {
@@ -196,6 +262,8 @@ function Sidebar() {
 
   const navItems = [
     { name: 'Dashboard', icon: Zap },
+    // --- NEW: Progress Tab ---
+    { name: 'Progress', icon: Users },
     { name: 'Itinerary', icon: ClipboardList },
     { name: 'Budget', icon: DollarSign },
     { name: 'Tracker', icon: MapPin },
@@ -278,6 +346,9 @@ function MainContent() {
     switch (currentPage) {
       case 'Dashboard':
         return <DashboardPage />;
+      // --- NEW: Render Progress Page ---
+      case 'Progress':
+        return <ProgressPage />;
       case 'Itinerary':
         return <ItineraryPage />;
       case 'Budget':
@@ -313,6 +384,121 @@ function DashboardPage() {
     </div>
   );
 }
+
+// --- NEW: Progress Page Component ---
+function ProgressPage() {
+  const { trip } = useContext(AppContext);
+
+  const unassignedTasks = useMemo(() => 
+    trip.tasks.filter(t => t.assignedTo === null)
+  , [trip.tasks]);
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-2xl font-bold text-gray-900">Everyone's Progress</h2>
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+        {trip.participants.map(user => (
+          <ParticipantProgressCard key={user.id} user={user} />
+        ))}
+      </div>
+      
+      {unassignedTasks.length > 0 && (
+        <Card>
+          <CardHeader>Unassigned Tasks</CardHeader>
+          <div className="space-y-2 p-6 pt-0">
+            {unassignedTasks.map(task => (
+              <div key={task.id} className="flex items-center rounded-md p-3">
+                <Circle size={20} className="mr-3 text-gray-300" />
+                <span className="font-medium text-gray-800">{task.name}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// --- NEW: Sub-component for Progress Page ---
+function ParticipantProgressCard({ user }) {
+  const { trip } = useContext(AppContext);
+
+  // Get all gear this user is responsible for
+  const userGear = useMemo(() => 
+    trip.gear.filter(g => {
+      const isPersonal = !g.shared && user.id === CURRENT_USER_ID; // Note: We can only see our own personal gear
+      const isSharedClaimed = g.shared && g.claims.includes(user.id);
+      // For this demo, we'll only show "You" your personal gear.
+      // A future update could let users make their personal lists public.
+      return user.id === CURRENT_USER_ID ? (isPersonal || isSharedClaimed) : isSharedClaimed;
+    })
+  , [trip.gear, user.id]);
+
+  // Get all tasks assigned to this user
+  const userTasks = useMemo(() => 
+    trip.tasks.filter(t => t.assignedTo === user.id)
+  , [trip.tasks, user.id]);
+
+  const totalItems = userGear.length + userTasks.length;
+  const packedItems = userGear.filter(g => g.personalStatus[user.id] === 'packed').length;
+  const completedTasks = userTasks.filter(t => t.status === 'complete').length;
+  const totalComplete = packedItems + completedTasks;
+  
+  const progress = totalItems > 0 ? Math.round((totalComplete / totalItems) * 100) : 100; // 100 if 0 tasks
+  
+  return (
+    <Card>
+      <div className="flex items-center gap-4 p-4">
+        <img src={user.avatar} alt={user.name} className="h-12 w-12 rounded-full" />
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900">{user.name}</h3>
+          <p className="text-sm text-gray-600">{totalComplete} / {totalItems} Tasks Complete</p>
+        </div>
+      </div>
+      <div className="p-4 pt-0">
+        <div className="h-2 w-full rounded-full bg-gray-200">
+          <div 
+            className="h-2 rounded-full bg-blue-600 transition-all" 
+            style={{ width: `${progress}%`}} 
+          />
+        </div>
+      </div>
+
+      {(userGear.length > 0 || userTasks.length > 0) && (
+        <div className="divide-y divide-gray-200 border-t border-gray-200 px-4 pb-4">
+          {userGear.map(gear => {
+            const isPacked = gear.personalStatus[user.id] === 'packed';
+            const myClaimCount = gear.shared ? gear.claims.filter(c => c === user.id).length : 1;
+            return (
+              <div key={`gear-${gear.id}`} className="flex items-center py-3">
+                {isPacked ? <CheckCircle size={18} className="mr-3 text-green-500" /> : <Circle size={18} className="mr-3 text-gray-300" />}
+                <span className={`text-sm ${isPacked ? 'text-gray-500 line-through' : 'text-gray-700'}`}>
+                  (Pack) {gear.name} {myClaimCount > 1 ? `(x${myClaimCount})` : ''}
+                </span>
+              </div>
+            );
+          })}
+          {userTasks.map(task => {
+            const isComplete = task.status === 'complete';
+            return (
+              <div key={`task-${task.id}`} className="flex items-center py-3">
+                {isComplete ? <CheckCircle size={18} className="mr-3 text-green-500" /> : <Circle size={18} className="mr-3 text-gray-300" />}
+                <span className={`text-sm ${isComplete ? 'text-gray-500 line-through' : 'text-gray-700'}`}>
+                  (Task) {task.name}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {totalItems === 0 && (
+        <p className="px-4 pb-4 text-sm text-gray-500">No assigned tasks or claimed items.</p>
+      )}
+    </Card>
+  );
+}
+
 
 function ItineraryPage() {
   return (
@@ -495,6 +681,7 @@ function TrackerPage() {
 
 
 // --- Core Feature Components ---
+
 function SharedGearList() {
   const { trip, updateTrip } = useContext(AppContext);
   
@@ -502,11 +689,11 @@ function SharedGearList() {
     trip.gear.filter(g => g.shared)
   , [trip.gear]);
   
-  const handleClaim = (gearId, claimIndex) => {
+  const handleAssignment = (gearId, claimIndex, userId) => {
     const newGear = trip.gear.map(g => {
       if (g.id === gearId) {
         const newClaims = [...g.claims];
-        newClaims[claimIndex] = newClaims[claimIndex] === CURRENT_USER_ID ? null : CURRENT_USER_ID;
+        newClaims[claimIndex] = userId; 
         return { ...g, claims: newClaims };
       }
       return g;
@@ -541,34 +728,47 @@ function SharedGearList() {
               </span>
             </div>
             
-            <div className="mt-4 flex flex-wrap gap-3">
+            <div className="mt-4 flex flex-col gap-3">
               {gear.claims.map((claimantId, index) => {
                 const isClaimedByMe = claimantId === CURRENT_USER_ID;
-                const isClaimedByOther = claimantId && !isClaimedByMe;
+                const isClaimed = claimantId !== null;
                 
                 return (
-                  <button
-                    key={index}
-                    onClick={() => handleClaim(gear.id, index)}
-                    disabled={isClaimedByOther}
-                    className={`flex items-center gap-2 rounded-full border px-3 py-1 text-sm transition-all
-                      ${isClaimedByMe
-                        ? 'border-blue-500 bg-blue-100 text-blue-700'
-                        : isClaimedByOther
-                        ? 'cursor-not-allowed border-gray-300 bg-gray-100 text-gray-500 opacity-70'
-                        : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
-                      }`}
-                  >
-                    {isClaimedByMe ? (
-                      <img src={USERS['u1'].avatar} alt="You" className="h-5 w-5 rounded-full" />
-                    ) : isClaimedByOther ? (
-                      <img src={USERS[claimantId].avatar} alt={USERS[claimantId].name} className="h-5 w-5 rounded-full" />
-                    ) : (
-                      <Circle size={14} className="text-gray-400" />
-                    )}
-                    
-                    {isClaimedByMe ? 'Claimed by You' : isClaimedByOther ? USERS[claimantId].name : 'Claim'}
-                  </button>
+                  <div key={index} className="flex flex-wrap items-center justify-between rounded-md bg-gray-50 p-2 sm:flex-nowrap">
+                    <div className="flex items-center gap-3">
+                        {isClaimed ? (
+                            <img src={USERS[claimantId].avatar} alt={USERS[claimantId].name} className="h-8 w-8 rounded-full" />
+                        ) : (
+                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200">
+                                <Circle size={16} className="text-gray-400" />
+                            </div>
+                        )}
+                        
+                        <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-700">
+                                {isClaimed ? (isClaimedByMe ? "You" : USERS[claimantId].name) : "Unclaimed Slot"}
+                            </span>
+                            {isClaimedByMe && <span className="text-xs text-blue-600">Appears in your packing list</span>}
+                        </div>
+                    </div>
+
+                    <select
+                        className={`mt-2 w-full rounded border py-1 pl-2 pr-8 text-sm focus:border-blue-500 focus:ring-blue-500 sm:mt-0 sm:w-auto ${
+                             isClaimedByMe ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-300'
+                        }`}
+                        value={claimantId || ""}
+                        onChange={(e) => handleAssignment(gear.id, index, e.target.value || null)}
+                    >
+                        <option value="">Needs Volunteer</option>
+                        <optgroup label="Assign To...">
+                            {Object.values(USERS).map(u => (
+                                <option key={u.id} value={u.id}>
+                                    {u.id === CURRENT_USER_ID ? "Me (Claim)" : u.name}
+                                </option>
+                            ))}
+                        </optgroup>
+                    </select>
+                  </div>
                 );
               })}
             </div>
@@ -582,8 +782,12 @@ function SharedGearList() {
 function PersonalGearList() {
   const { trip, updateTrip } = useContext(AppContext);
   
-  const personalGear = useMemo(() => 
-    trip.gear.filter(g => !g.shared)
+  const myGearList = useMemo(() => 
+    trip.gear.filter(g => {
+      const isPersonal = !g.shared;
+      const isSharedButClaimedByMe = g.shared && g.claims.includes(CURRENT_USER_ID);
+      return isPersonal || isSharedButClaimedByMe;
+    })
   , [trip.gear]);
   
   const handleTogglePacked = (gearId) => {
@@ -604,15 +808,29 @@ function PersonalGearList() {
     updateTrip({ gear: newGear });
   };
   
+  const packedCount = myGearList.filter(g => g.personalStatus[CURRENT_USER_ID] === 'packed').length;
+  const totalCount = myGearList.length;
+  const progress = totalCount > 0 ? Math.round((packedCount / totalCount) * 100) : 0;
+
   return (
     <Card>
       <CardHeader>
-        <User size={18} className="mr-2 text-green-600" />
-        Your Personal Items
+        <div className="flex w-full items-center justify-between">
+            <div className="flex items-center">
+                <User size={18} className="mr-2 text-green-600" />
+                <span>Your Packing List</span>
+            </div>
+            <span className="text-sm font-normal text-gray-500">{packedCount}/{totalCount} Packed ({progress}%)</span>
+        </div>
       </CardHeader>
       <div className="space-y-2 p-6 pt-0">
-        {personalGear.map(gear => {
+        {myGearList.length === 0 && (
+            <p className="py-4 text-center text-sm text-gray-500">You haven't claimed any items yet.</p>
+        )}
+        {myGearList.map(gear => {
           const isPacked = gear.personalStatus[CURRENT_USER_ID] === 'packed';
+          const myClaimCount = gear.shared ? gear.claims.filter(c => c === CURRENT_USER_ID).length : 1;
+          
           return (
             <button
               key={gear.id}
@@ -627,9 +845,12 @@ function PersonalGearList() {
                 ) : (
                   <Circle size={20} className="mr-3 text-gray-300" />
                 )}
-                <span className={`font-medium ${isPacked ? 'text-gray-500 line-through' : 'text-gray-800'}`}>
-                  {gear.name}
-                </span>
+                <div className="text-left">
+                    <span className={`block font-medium ${isPacked ? 'text-gray-500 line-through' : 'text-gray-800'}`}>
+                      {gear.name} {myClaimCount > 1 ? `(x${myClaimCount})` : ''}
+                    </span>
+                    {gear.shared && <span className="text-xs text-blue-500">Shared Item {myClaimCount > 1 ? `(You claimed ${myClaimCount})` : ''}</span>}
+                </div>
               </div>
               <span className="text-sm text-gray-500">{gear.category}</span>
             </button>
@@ -639,6 +860,7 @@ function PersonalGearList() {
     </Card>
   );
 }
+
 
 function TasksList() {
   const { trip, updateTrip } = useContext(AppContext);
